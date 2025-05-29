@@ -1,9 +1,51 @@
+#' Perform a Functional ANOVA Over a Signal
+
+#' @param dta A numeric matrix of dimension n × T, where n is the number of samples and T the number of time points.
+#' @param design A design matrix for the full model (under H1).
+#' @param design0 An optional design matrix for the reduced model (under H0). Default is a column of ones.
+#' @param edesign An optional contrast matrix to test specific linear hypotheses.
+#' @param nbf An integer or vector of integers indicating the number of factors for the FA approximation.
+#' @param pvalue Method to compute p-values. One of `"none"`, `"Satterthwaite"`, or `"MC"` (Monte Carlo). Default is `"none"`.
+#' @param nsamples Number of Monte Carlo samples if `pvalue = "MC"`. Default is 200.
+#' @param min.err Convergence threshold for the FA estimation algorithm. Default is 0.01.
+#' @param verbose Logical. If TRUE, convergence messages are printed. Default is FALSE.
+#' @param parallel Logical. If TRUE, computations are done in parallel. Default is TRUE.
+#' @param nbcores Number of cores to use if `parallel = TRUE`. If NULL, all available cores are used.
+#' @param sd Logical. If TRUE, residual standard deviations are returned. Default is FALSE.
+#'
+#' @return A list with components:
+#' \describe{
+#'   \item{Fols}{F-statistic using ordinary least squares (OLS).}
+#'   \item{Fgls0}{F-statistic using generalized least squares (GLS) without FA modeling.}
+#'   \item{Fgls}{F-statistics using GLS with FA modeling (if `nbf > 0`).}
+#'   \item{F}{Pointwise OLS F-statistics (vector of length T).}
+#'   \item{wF}{Pointwise GLS F-statistics (matrix of size `length(nbf)` × T).}
+#'   \item{b.ols}{OLS beta coefficients.}
+#'   \item{coef}{All coefficients from OLS (including non-tested effects).}
+#'   \item{beta}{Coefficients for the tested effects only.}
+#'   \item{sdres}{Residual standard deviations (length T).}
+#' }
+#'
+#' @examples
+#' # Simulated data
+#' set.seed(123)
+#' n <- 50  # number of subjects
+#' T <- 100  # number of time points
+#' x <- rnorm(n)
+#' y <- rbinom(n, 1, 0.5)
+#' X <- model.matrix(~ x + y)
+#' data <- matrix(rnorm(n * T), nrow = n)
+#'
+#' # Run FAov with no factor modeling
+#' result <- Faov(dta = data, design = X, nbf = 0, nbcores = 2)
+#' result$Fols  # global OLS F-statistic
+#'
+#' @export
+#' @importFrom parallel mclapply detectCores
+#' @importFrom Matrix chol
 
 
-
-
-
-my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 0,
+Faov = function (dta, design, design0 = NULL, edesign = NULL, nbf = 0,
                     pvalue = c("none", "Satterthwaite", "MC"), nsamples = 200,
                     min.err = 0.01, verbose = FALSE, parallel = TRUE, nbcores = NULL,
                     sd = FALSE)
@@ -24,7 +66,7 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
 
 
 
-    emfa <- function(data_my_faov, nbf, min.err = 1e-05, verbose = FALSE) {
+    emfa <- function(dta, nbf, min.err = 1e-05, verbose = FALSE) {
       ifa <- function(Psi, B) {
         m = nrow(B)
         nbf = ncol(B)
@@ -53,16 +95,16 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
         iSB = Phi * aux
         return(list(iSB = iSB, Phi = phi, Theta = theta))
       }
-      m = ncol(data_my_faov)
-      n = nrow(data_my_faov)
-      mdta = colMeans(data_my_faov)
-      vdta = colMeans(data_my_faov^2) - mdta^2
+      m = ncol(dta)
+      n = nrow(dta)
+      mdta = colMeans(dta)
+      vdta = colMeans(dta^2) - mdta^2
 
       # sd at each time point
       sddta = sqrt(n/(n - 1)) * sqrt(vdta)
 
       #centered values
-      cdta = data_my_faov - outer(rep(1, n), mdta)
+      cdta = dta - outer(rep(1, n), mdta)
 
       lPsi = as.list(rep(0, length(nbf)))
       lB = as.list(rep(0, length(nbf)))
@@ -224,10 +266,10 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
                 sdres = sdres))
   }
   if (is.null(design0))
-    design0 = matrix(1, nrow = nrow(data_my_faov), ncol = 1)
+    design0 = matrix(1, nrow = nrow(dta), ncol = 1)
   if (!is.logical(verbose))
     stop("verbose should be logical")
-  erpdta_my_faov = as.matrix(data_my_faov)
+  erpdta_faov = as.matrix(dta)
   design = as.matrix(design)
   design0 = as.matrix(design0)
   if (!is.null(edesign))
@@ -236,15 +278,15 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
                                          "MC"))
   if (typeof(nsamples) != "double")
     stop("nsamples sould be an integer, usually larger than 200.")
-  if (typeof(erpdta_my_faov) != "double")
+  if (typeof(erpdta_faov) != "double")
     stop("ERPs should be of type double")
-  if (nrow(erpdta_my_faov) != nrow(design))
-    stop("data_my_faov and design should have the same number of rows")
-  if (nrow(erpdta_my_faov) != nrow(design0))
-    stop("data_my_faov and design0 should have the same number of rows")
+  if (nrow(erpdta_faov) != nrow(design))
+    stop("dta and design should have the same number of rows")
+  if (nrow(erpdta_faov) != nrow(design0))
+    stop("dta and design0 should have the same number of rows")
   if (!is.null(edesign)) {
-    if (nrow(erpdta_my_faov) != nrow(edesign))
-      stop("data_my_faov and edesign should have the same number of rows")
+    if (nrow(erpdta_faov) != nrow(edesign))
+      stop("dta and edesign should have the same number of rows")
   }
   if (ncol(design) <= ncol(design0))
     stop("design0 should have fewer columns than design")
@@ -290,8 +332,8 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
   nbcores = min(nbcores, parallel::detectCores() - 1)
   if (parallel)
     cl = parallel::makeCluster(getOption("cl.cores", nbcores))
-  n = nrow(erpdta_my_faov)
-  T = ncol(erpdta_my_faov)
+  n = nrow(erpdta_faov)
+  T = ncol(erpdta_faov)
   svd.design = corpcor::fast.svd(design)
   svd.design0 = corpcor::fast.svd(design0)
   rdf1 = nrow(design) - length(svd.design$d)
@@ -320,7 +362,7 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
     lsamples = lapply(1:nsamples, function(i, n) sample(1:n),
                       n = n)
   if (is.null(edesign)) {
-    Fgls = F0(1:n, u = svd.design$u, uw = NULL, y = erpdta_my_faov,
+    Fgls = F0(1:n, u = svd.design$u, uw = NULL, y = erpdta_faov,
               vid = vid, cZ = cZ, sqrtcz = sqrtcz, idsignal = idsignal,
               rdf = rdf1, rdfw = NULL, lab = colnames(design),
               nbf = nbf, min.err = min.err, verbose = verbose)
@@ -328,7 +370,7 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
   }
   if (!is.null(edesign)) {
     Fgls = F0(1:n, u = svd.design$u, uw = svd.edesign$u,
-              y = erpdta_my_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
+              y = erpdta_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
               idsignal = idsignal, rdf = rdf1, rdfw = rdfw, lab = colnames(design),
               nbf = nbf, min.err = min.err, verbose = verbose)
   }
@@ -348,14 +390,14 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
     if (!parallel) {
       if (is.null(edesign)) {
         f0.gls = lapply(lsamples, F0, u = svd.design$u,
-                        y = erpdta_my_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
+                        y = erpdta_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
                         idsignal = idsignal, rdf = rdf1, uw = NULL,
                         lab = colnames(design), rdfw = NULL, nbf = nbf,
                         min.err = min.err, verbose = FALSE)
       }
       if (!is.null(edesign)) {
         f0.gls = lapply(lsamples, F0, u = svd.design$u,
-                        y = erpdta_my_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
+                        y = erpdta_faov, vid = vid, cZ = cZ, sqrtcz = sqrtcz,
                         idsignal = idsignal, rdf = rdf1, lab = colnames(design),
                         uw = svd.edesign$u, rdfw = rdfw, nbf = nbf,
                         min.err = min.err, verbose = FALSE)
@@ -364,14 +406,14 @@ my_Faov = function (data_my_faov, design, design0 = NULL, edesign = NULL, nbf = 
     if (parallel) {
       if (is.null(edesign)) {
         f0.gls = parallel::parLapply(cl = cl, lsamples,
-                                     F0, u = svd.design$u, y = erpdta_my_faov, vid = vid,
+                                     F0, u = svd.design$u, y = erpdta_faov, vid = vid,
                                      cZ = cZ, sqrtcz = sqrtcz, idsignal = idsignal,
                                      rdf = rdf1, uw = NULL, lab = colnames(design),
                                      rdfw = NULL, nbf = nbf, min.err = min.err)
       }
       if (!is.null(edesign)) {
         f0.gls = parallel::parLapply(cl = cl, lsamples,
-                                     F0, u = svd.design$u, y = erpdta_my_faov, vid = vid,
+                                     F0, u = svd.design$u, y = erpdta_faov, vid = vid,
                                      cZ = cZ, sqrtcz = sqrtcz, idsignal = idsignal,
                                      rdf = rdf1, uw = svd.edesign$u, lab = colnames(design),
                                      rdfw = rdfw, nbf = nbf, min.err = min.err)

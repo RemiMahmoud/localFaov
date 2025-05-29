@@ -4,22 +4,21 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of localFaov is to ...
+
+The goal of localFaov is to perform domain selection over a
+signal, i.e find portion of a signal responsible for the difference
+between curves.
+
 
 ## Installation
 
 You can install the development version of localFaov like so:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+remotes::install_github("RemiMahmoud/localFaov")
 ```
+
 
 ## Example
 
-This is a basic example which shows you how to solve a common problem:
-
-``` r
-library(localFaov)
-## basic example code
-```
 

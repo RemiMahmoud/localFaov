@@ -4,12 +4,22 @@
 \name{localFaov-package}
 \alias{localFaov}
 \alias{localFaov-package}
-\title{localFaov: What the Package Does (One Line, Title Case)}
+\title{localFaov: Perform (local) functional ANOVA over a signal}
 \description{
-What the package does (one paragraph).
+This package is designed to perform domain selection over a signal, i.e find portion of a signal responsible for the difference between curves.
 }
 \author{
-\strong{Maintainer}: First Last \email{first.last@example.com} (\href{https://orcid.org/YOUR-ORCID-ID}{ORCID})
+\strong{Maintainer}: David Causeur \email{david.causeur@institut-agro.fr} (\href{https://orcid.org/0000-0001-6910-9440}{ORCID})
+
+Authors:
+\itemize{
+  \item Rémi Mahmoud (\href{https://orcid.org/0000-0003-0853-0834}{ORCID})
+}
+
+Other contributors:
+\itemize{
+  \item Ching-Fan Sheu (\href{https://orcid.org/0000-0002-5978-5768}{ORCID}) [data contributor, contractor]
+}
 
 }
 \keyword{internal}

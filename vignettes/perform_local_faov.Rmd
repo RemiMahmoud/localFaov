@@ -1,0 +1,255 @@
+---
+title: "Perform a local functional ANOVA"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Perform a local functional ANOVA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(localFaov)
+```
+
+
+At first glance, let's load the data and inspect it.
+
+
+```{r eval=TRUE, message=FALSE}
+data(impulsivity, package="localFaov")
+```
+
+Each of the 1,440 (30 x 12 x 2 x 2) rows of 'impulsivity' contains an ERP curve 
+(from column 6 to 606) between -200 ms and 1000 ms with one recording every 2 ms. 
+The first 5 columns are covariates: channel (electrode locations on the scalp), 
+subject index, impulsivity trait group (High/Low), response inhibition condition (Success/Failure) and a response inhibition score (not considered here). 
+An extract of the data is shown below:
+
+```{r results='asis'}
+head(impulsivity[,1:8])
+```
+
+The sequence of time points is generated for use later.
+
+```{r eval=TRUE}
+# sequence of time points (1 time point every 2ms in [-200,1000])
+time_pt <- seq(-200, 1000, 2)
+```
+
+The main focus here is to compare mean ERP curves between the two 
+response inhibition conditions after the stimulus onset (time 0 ms). 
+Therefore, subsequent analysis considers only the ERP curves restricted 
+to positive time points:
+
+```{r eval=TRUE}
+erpdta <- impulsivity[, 5+(1:601)]          
+   # erpdta contains the ERP curves
+erpdta <- erpdta[, time_pt >= 0]  
+   # only the ERP values after the onset are analyzed
+time_pt <- time_pt[time_pt >=0] 
+# the sequence of time points covers [0, 1000 ms]
+length_grid <- length(time_pt)           
+  # number of time points
+```
+
+The numeric response inhibition score is excluded from consideration here.
+
+```{r}
+covariates <- impulsivity[,1:4]
+# contains the experimental covariates of interest
+```
+
+For each of the 30 channels, the data contains 12 ERP curves in a balanced group 
+(two levels) by condition (two levels) factorial design 
+(shown below for channel CP3, which is chosen arbitrarily):
+
+```{r results='asis'}
+with(subset(covariates, Channel=="CP3"), table(Condition, Group))
+# Within each channel (e.g., CP3), 12 ERP curves in each Condition x Group
+```
+
+<!-- Keeping the present vignette concise, we select -->
+<!-- the following channels, `CP3`, `CPZ`, `CP4`, `FC3`, `FCZ`, `FC4`, `C3`, `CZ` and `C4`, -->
+<!-- for subsequent discussion without loss of generality: -->
+
+
+For illustration purposes, let us consider the comparison of the mean ERP 
+curves between the two response inhibition conditions at Channel `CP3` 
+for subjects from the high impulsivity trait group:
+
+```{r, warning=FALSE, message=FALSE}
+
+select_ch <- covariates$Channel %in% c("CP3", "CPZ", "CP4", "FC3", "FCZ", 
+                                       "FC4", "C3", "CZ", "C4")  
+erpdta <- erpdta[select_ch, ]
+covariates <- covariates[select_ch,] |> droplevels()
+select <- (covariates$Channel == "CP3") & (covariates$Group == "High")
+erpdta_s <- erpdta[select,]
+covariates_s <- covariates[select,] |> droplevels()
+```
+
+
+
+
+The basic principle of functional analysis of variance (FANOVA) is to
+form a global test statistic by aggregating the pointwise F-test statistics
+for comparing the mean curves under various experimental designs.
+
+The function `Faov` aggregates the pointwise F-tests 
+using their sum. Under arbitrary (time) dependence, the expression of the null distribution of such a global test statistic is intractable. 
+In the function `Faov`, a Monte-Carlo method is implemented for p-value 
+calculation based on a random permutation technique 
+(`p-value="MC"` and `nsamples=1000` in the call of function `Faov` to 
+get a p-value using 1,000 random permutations).
+
+To specify the test to be performed in the function `Faov`, 
+the design matrices of the model under the null (`design0`) 
+and non-null (`design`) are required:
+
+```{r}
+design <- model.matrix(~ Subject + Condition, data=covariates_s)
+design0 <- model.matrix(~ Subject, data=covariates_s)
+F <- Faov(erpdta_s, 
+          design=design, 
+          design0=design0,
+          nsamples=1000, 
+          pvalue = "MC")
+```
+
+
+
+The p-value for the global test is in the component `$pval.Fgls` of the
+object `F`:
+
+```{r}
+F$pval.Fgls
+```
+
+
+We propose a local functional ANOVA testing procedure that finds the largest collection of time points at 
+which no significant effect can be detected with the functional ANOVA test implemented in the function 'Faov'. Importantly, the result of this signal identification procedure is necessarily consistent with signal detection using a global functional ANOVA test. Indeed, if the global functional ANOVA test is not significant, then the largest set of time points in which the functional ANOVA test is not significant 
+is the whole time frame. In this situation, the procedure identifies no significant time points. On the contrary, if the global functional ANOVA test is significant, then the largest set of time points in which the functional ANOVA test is not significant is necessarily smaller than the whole interval.    
+
+To obtain this maximal set of non-significant time points, we propose thefollowing approach for the case under consideration: 
+for a grid of 100 time points regularly spaced between 0 and 1,000 ms, we test for the `condition` effect within the neighborhood (the 20 closest time points around the center) of these intervals using the same functional F-test introduced above:  
+
+
+```{r eval=TRUE}
+select <- (covariates$Channel=="CP3")&(covariates$Group=="High") 
+erpdta_ch <- erpdta[select,]
+covariates_ch <- covariates[select,]
+covariates_ch <- droplevels(covariates_ch)
+```
+
+```{r eval=TRUE,cache=TRUE}
+vec_nbf <- 0:2
+window_size <- 20
+number_intervals <- 100
+
+design <- model.matrix(~ Subject+Condition, data=covariates_ch)
+design0 <- model.matrix(~ Subject, data=covariates_ch)
+edesign <- model.matrix(~ Subject+Condition+Subject:Condition, data=covariates_ch)
+
+local_F_CP3_High <- local_Faov(dta=erpdta_ch,
+                              design=design,
+                              design0=design0,
+                              edesign=edesign,
+                              nbf=vec_nbf,
+                              nsamples=1000,
+                              pvalue="MC",
+                              min.err=1e-02,
+                              window_size=window_size,
+                              number_intervals=number_intervals,
+                              verbose=TRUE)
+```
+
+This figure shows the interval identified by the local procedure:
+
+```{r, fig.show='hold',fig.width=7,fig.asp=0.75}
+failure_h <- colMeans(erpdta_ch[covariates_ch$Condition=="Failure",])
+success_h <- colMeans(erpdta_ch[covariates_ch$Condition=="Success",])
+matplot(time_pt, cbind(success_h,failure_h),
+     type = "l", 
+     bty = 'n',
+     col=c("steelblue", "firebrick"),
+     xlab = "Time (ms)",
+     lty=c(1, 1),
+     ylab = "Amplitude (in micro-volt)",
+     main = "Mean ERP curves in two inhibition conditions \n for high trait group at CP3",
+     ylim = c(-10, 15))
+grid()
+matlines(time_pt, t(erpdta_ch[covariates_ch$Condition=="Failure",]),
+     lty=1,
+     lwd=0.8,
+     col="lightpink")
+matlines(time_pt, t(erpdta_ch[covariates_ch$Condition=="Success",]),
+     lty=1,
+     lwd=0.8,
+     col="lightblue")
+matlines(time_pt, cbind(success_h, failure_h),
+     type = "l", 
+     lty=1,
+     col=c("steelblue", "firebrick"))
+legend("topleft",
+       bty="n",
+       lty=1,
+       col=c("steelblue", "firebrick"),
+       legend=c("Success", "Failure"))
+legend("topright", bty="n", lty=1,
+       col="goldenrod",
+       lwd=1,
+       legend="Identified intervals")
+points(time_pt[local_F_CP3_High$significant],
+       rep(0, length(local_F_CP3_High$significant)),
+       pch=16, 
+       cex=.5, 
+       col="goldenrod")
+
+
+```
+
+
+
+```{r, fig.show='hold',fig.width=7,fig.asp=0.75}
+
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+colnames(erpdta_ch) = time_pt
+data_plot_curves = cbind(covariates_ch,erpdta_ch) %>% 
+  pivot_longer(- c("Channel", "Subject", "Group", "Condition"), names_to = "time", values_to = "value", names_transform = as.numeric) 
+
+data_mean_curves <- data_plot_curves %>% 
+  summarise(value = mean(value), .by = c(Condition, time))
+  
+theme_set(theme_bw())
+
+data_plot_curves %>% 
+  ggplot(aes(x = time,y = value, color = Condition)) +
+  geom_line(aes(group = interaction(Condition, Subject, Channel)), alpha =.3) +
+  geom_line(data = data_mean_curves, alpha = 1) +
+  # geom_segment(x = min(time_pt[local_F_CP3_High$significant]), 
+  #              xend = max(time_pt[local_F_CP3_High$significant]),
+  #              y = 0, yend =0,
+  #              color = "sienna", linewidth = 2)  + 
+    geom_rect(xmin = min(time_pt[local_F_CP3_High$significant]),
+              xmax = max(time_pt[local_F_CP3_High$significant]),
+              ymin =  -Inf, ymax = Inf,
+              fill = "grey90", inherit.aes = FALSE,
+              alpha=  0.05)  +
+  theme(legend.position = "bottom") +
+  labs(x = "Time (ms)", y = "Amplitude (in micro-volt)",
+     title = "Mean ERP curves in two inhibition conditions \n for high trait group at CP3") 
+
+
+```
